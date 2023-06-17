@@ -14,7 +14,7 @@ El trabajo pide desarrollar el juego Hoop Hop Showdown – Rock Paper Scissors H
 
 ## Resumen del Código
 Se crean dos estructuras, una para el equipo y otra para los jugadores. El juego funciona con un canal que controla los movimientos de los jugadores y una goroutine que se crea para cada jugador. Para esta ocasión los movimientos son aleatorios, de encontrarse los jugadores tendrán que jugar RPS, el perdedor volverá a comenzar y el ganador seguirá su camino hasta encontrar el cono y obtener los tokens. El equipo que se quede con 0 tokens es eliminado del juego y solo quedan los equipos restantes que seguiran jugando hasta que solo resulte un ganador. 
-Ahora la informacion de los equipos se envia atraves de sockets en formato json.
+Ahora la informacion de los equipos se envia atraves de sockets en formato json. El programa escuchara al puerto hasta que se complete la cantidad de equipos que se desee.
 
 ## Conclusiones y puntos de mejora
 . Se puede mejorar esta primera versión del código omitiendno la clase jugador, ya que según las reglas del juego solo un jugador por cada equipo está interactuando en el "mapa". Por ende, solo es necesario almacenar un identificador dentro de la clase "equipo". Que contenga el jugador actual en juego.
