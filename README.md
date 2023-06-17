@@ -17,7 +17,7 @@ Se crean dos estructuras, una para el equipo y otra para los jugadores. El juego
 Ahora la informacion de los equipos se envia atraves de sockets en formato json. El programa escuchara al puerto hasta que se complete la cantidad de equipos que se desee.
 
 ## Conclusiones y puntos de mejora
-. Se puede mejorar esta primera versión del código omitiendno la clase jugador, ya que según las reglas del juego solo un jugador por cada equipo está interactuando en el "mapa". Por ende, solo es necesario almacenar un identificador dentro de la clase "equipo". Que contenga el jugador actual en juego.
+. Se debe solucionar un problema por el que el juego no termina de completarse, en un momento se estanca en una funcion.
 
 . También, se puede cambiar la lógica de armado del juego, ya que según la distribución del juego, son M aros equitativos hasta un centro por cada equipo. Si son N equipos, se podría interpretar como una matriz NxM, en el que los encuentros se den en el borde derecho de la matriz o en la misma fila.
 
