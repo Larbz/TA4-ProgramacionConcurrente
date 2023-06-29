@@ -9,18 +9,21 @@ import (
 	"strings"
 )
 
-type Team struct {
-	Name   string `json:"name"`
-	Tokens int    `json:"tokens"`
+type Player struct {
+	Name      string
+	Tokens    int
+	positionX int
+	positionY int
+	index     int
+	inGame    bool
+	delay     int
 }
-
 type Mensaje struct {
 	Numero int
 }
 
 var addressRemoto string
 var mensaje Mensaje
-
 func main() {
 	brIn := bufio.NewReader(os.Stdin)
 	fmt.Print("Ingrese el puerto del host remoto: ")
@@ -41,22 +44,23 @@ func main() {
 	name, _ := brIn.ReadString('\n')
 	name = strings.TrimSpace(name)
 
-	var team Team
-	team.Name = name
-	team.Tokens = 3
-
-	enviarJson(team)
+	var player Player
+	player.Name = name
+	player.Tokens = 2
+	player.inGame=true
+	player.positionX=1
+	enviarJson(player)
 }
-func enviarJson(team Team) {
+func enviarJson(player Player) {
 	conn, _ := net.Dial("tcp", addressRemoto)
 	defer conn.Close()
 
 	//Serializar
-	arrBytesMsg, _ := json.Marshal(team)
+	arrBytesMsg, _ := json.Marshal(player)
 	jsonStrMsg := string(arrBytesMsg)
 
 	fmt.Println("Mensaje enviado: ")
-	fmt.Println(jsonStrMsg)
+	// fmt.Println(jsonStrMsg)
 	fmt.Fprintf(conn, jsonStrMsg)
 
 }

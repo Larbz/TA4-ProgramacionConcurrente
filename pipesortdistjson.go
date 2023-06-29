@@ -13,29 +13,40 @@ import (
 	"time"
 )
 
-type Team struct {
-	Name   string `json:"Name"`
-	Tokens int    `json:"Tokens"`
+// type Team struct {
+// 	Name   string `json:"Name"`
+// 	Tokens int    `json:"Tokens"`
+// }
+
+// type Mensaje struct {
+// 	Numero int
+// }
+
+type Player struct {
+	Name      string
+	Tokens    int
+	positionX int
+	positionY int
+	index     int
+	inGame    bool
+	delay     int
+	freezed   bool
+	Mutex sync.Mutex
 }
 
-type Mensaje struct {
-	Numero int
-}
+var wgGroup []*sync.WaitGroup
+var chGroup []chan Player
+var teams []*Player
+var stopGroup []chan bool
 
-var min int
-var cont int
-var chCont chan int
-var chTeam chan Team
 var numero int
 var addressLocal string
 var addressRemoto string
-var teamStart Team
-var teamsArr []Team
 var cantTeams int
-
+var playerStart Player
 
 func main() {
-
+	var wg sync.WaitGroup
 	//lectura por consola del host origen
 	brIn := bufio.NewReader(os.Stdin)
 	fmt.Print("Ingrese el puerto del host local: ")
@@ -52,11 +63,11 @@ func main() {
 
 	//lectura de nro de mensajes a recibir
 	brIn = bufio.NewReader(os.Stdin)
-	fmt.Print("Ingreese el numero de mensajes a recibir: ")
+	fmt.Print("Ingrese el numero de equipos a participar: ")
 	numstr, _ := brIn.ReadString('\n')
 	numstr = strings.TrimSpace(numstr)
 	numero, _ = strconv.Atoi(numstr)
-	cantTeams=0
+	cantTeams = 0
 	//creamos canal
 	// chTeam = make(chan Team, 1)
 	// chTeam <- player
@@ -70,11 +81,15 @@ func main() {
 	ln := escuchar()
 	defer ln.Close()
 
-	for cantTeams < 2 {
+	for cantTeams < numero-1 {
+		wg.Add(1)
 		conn, _ := ln.Accept()
-		go manejador(conn)
-
+		go manejador(conn, &wg)
 	}
+	wg.Wait()
+	// fmt.Println("Asd")
+	// fmt.Println(cantTeams)
+	// fmt.Println(len(teams))
 	game()
 
 }
@@ -84,36 +99,41 @@ func escuchar() net.Listener {
 	return conn
 }
 
-func manejador(conn net.Conn) {
-
+func manejador(conn net.Conn, wg *sync.WaitGroup) {
+	defer wg.Done()
 	defer conn.Close()
 	br := bufio.NewReader(conn)
 	msgJson, _ := br.ReadString('\n')
 
 	//deserializar
-	json.Unmarshal([]byte(msgJson), &teamStart)
+	json.Unmarshal([]byte(msgJson), &playerStart)
 	fmt.Println("Mensaje recibido: ")
-	fmt.Println(teamStart)
+	playerStart.positionX = 1
+	playerStart.index = len(teams) + 1
+	playerStart.positionY = len(teams) + 1
+	playerStart.inGame = true
+	playerStart.delay = 1
+	playerStart.freezed = false
+	generatePlayer(playerStart)
+	fmt.Println(playerStart)
 
-	teamsArr = append(teamsArr, teamStart)
-	cantTeams+=1
-	for _, t := range teamsArr {
-		fmt.Println(t.Name)
-		fmt.Println(t.Tokens)
-	}
+	// teams = append(teams, &playerStart)
+	cantTeams += 1
+	fmt.Println(len(teams))
+	// for _, t := range teams {
+	// fmt.Println(t.Name)
+	// fmt.Println(t.Tokens)
+	// }
 
 }
 
 func enviar(num int) {
 	conn, _ := net.Dial("tcp", addressRemoto)
 	defer conn.Close()
-	// fmt.Fprintf(conn, "%d\n", num)
 
-	teamStart.Tokens = num
-
+	playerStart.Tokens = num
 	//Serializar
-
-	arrBytesMsg, _ := json.MarshalIndent(teamStart, "", " ")
+	arrBytesMsg, _ := json.MarshalIndent(playerStart, "", " ")
 	jsonStrMsg := string(arrBytesMsg)
 
 	fmt.Println("Mensaje enviado: ")
@@ -122,180 +142,186 @@ func enviar(num int) {
 	fmt.Fprintf(conn, jsonStrMsg)
 }
 
-type Player struct {
-	Team   *Team
-	Name   string
-	InGame bool
-}
-
 func game() {
-	// teams := []*Team{
-	// 	{Name: "Team 1", Tokens: 1},
-	// 	{Name: "Team 2", Tokens: 1},
-	// 	{Name: "Team 3", Tokens: 1},
-	// }
-	var teams []*Team
-	for _, t := range teamsArr {
-		teams = append(teams, &Team{Name: t.Name, Tokens: t.Tokens})
-	}
-
-	players := make([]*Player, 0)
-	for ind, team := range teams {
-		players = append(players, &Player{Team: team, Name: "Player " + strconv.Itoa(ind+1), InGame: true})
-	}
-
-	// for _, p := range players {
-	// 	fmt.Println(p)
-	// }
-
-	rand.Seed(time.Now().UnixNano())
-
-	playingBoard := createPlayingBoard(len(teams))
-	currentPlayerIndex := 0
-
 	var wg sync.WaitGroup
-	moveCh := make(chan string)
 
-	wg.Add(len(players))
+	for ind := range teams {
+		// fmt.Println(player.Name, ind)
+		wg.Add(1)
+		go manage(teams[ind], wgGroup[ind], chGroup[ind], stopGroup[ind], &wg)
+	}
+	wg.Wait()
+	whoWon()
+}
 
-	for i := 0; i < len(players); i++ {
-		go func(playerIndex int) {
-			defer wg.Done()
-			player := players[playerIndex]
+func generatePlayer(player Player) {
+	wgGroup = append(wgGroup, &sync.WaitGroup{})
+	ch := make(chan Player)
+	chGroup = append(chGroup, ch)
+	stop := make(chan bool)
+	stopGroup = append(stopGroup, stop)
+	teams = append(teams, &player)
+}
 
-			for player.InGame {
-				if isGameFinished(players) {
-					break
+func manage(player *Player, wg *sync.WaitGroup, chPlayer chan Player, stop chan bool, mainWg *sync.WaitGroup) {
+	defer mainWg.Done()
+	for !isGameFinished() {
+		if player.inGame {
+			wg.Add(1)
+			go move(player, wg, chPlayer, stop)
+			// playerInfo := <-chPlayer
+			<-chPlayer
+			<-stop
+			// fmt.Printf("%s %d %d %d\n", playerInfo.Name, playerInfo.Tokens, playerInfo.positionX, playerInfo.positionY)
+		}
+	}
+}
+
+func move(player *Player, wg *sync.WaitGroup, chPlayer chan Player, stop chan bool) {
+	defer wg.Done()
+	wg.Add(1)
+	time.Sleep(1 * time.Second)
+	time.Sleep(time.Duration(player.delay) * time.Second)
+	if player.positionX == 10 {
+		aleatorio := rand.Intn(2)
+		var multiplier int
+		if aleatorio == 0 {
+			multiplier = -1
+		} else {
+			multiplier = 1
+		}
+		if aleatorio == 0 {
+			player.positionY += 1 * multiplier
+			player.positionX -= 1
+		} else {
+			player.positionY += 1 * multiplier
+			player.positionX -= 1
+		}
+		if player.positionY < 1 {
+			player.positionY = len(teams)
+		} else if player.positionY > len(teams) {
+			player.positionY %= len(teams)
+		}
+		for !teams[player.positionY-1].inGame && player.positionY != player.index { //SE VERIFICA QUE CAIGAMOS EN UNA FILA UNICAMENTE DE JUGADORES QUE ESTEN VIVOS
+			player.positionY += 1 * multiplier
+			if player.positionY < 1 {
+				player.positionY = len(teams)
+			} else if player.positionY > len(teams) {
+				player.positionY %= len(teams)
+			}
+		}
+
+	} else if player.positionX == 1 && player.positionY != player.index {
+		player.Tokens += 1
+		teams[player.positionY-1].Tokens -= 1
+		fmt.Printf("%s obtuvo 1 token de %s\n", player.Name, teams[player.positionY-1].Name)
+		if teams[player.positionY-1].Tokens == 0 {
+			teams[player.positionY-1].inGame = false
+			fmt.Printf("%s fue eliminado del juego\n", teams[player.positionY-1].Name)
+		}
+		player.positionX = 1
+		player.positionY = player.index
+	} else {
+		if player.positionY != player.index {
+			player.positionX -= 1
+		} else {
+			player.positionX += 1
+		}
+	}
+	go collisions(player, wg, chPlayer, stop)
+	fmt.Printf("%s %d %d %d\n", player.Name, player.Tokens, player.positionX, player.positionY)
+
+	player.delay = 0
+	player.freezed = false
+	// validateColition()
+	// stopGroup[player.index-1]<-true
+	chPlayer <- *player
+}
+
+func collisions(player *Player, wg *sync.WaitGroup, chPlayer chan Player, stop chan bool) {
+	defer wg.Done()
+	player.Mutex.Lock()
+	for ind := range teams {
+		if ind != player.index-1 && !teams[ind].freezed && !player.freezed {
+			if player.positionY == teams[ind].positionY && (teams[ind].positionX-player.positionX == 1 || teams[ind].positionX-player.positionX == -1 || teams[ind].positionX-player.positionX == 0) && teams[ind].inGame {
+				// time.Sleep(5 * time.Second)
+				// player.Tokens += 1
+				// teams[ind].Tokens -= 1
+				// if teams[ind].Tokens <= 0 && teams[ind].inGame {
+				result := playRPS()
+				for result == "Tie" {
+					result = playRPS()
 				}
-				if currentPlayerIndex != playerIndex {
-					continue
-				}
-				// if !players[currentPlayerIndex].InGame{break}
-				move := <-moveCh
-				if move == "Bucket" {
-					fmt.Printf("%s from %s reached another team's Bucket!\n", player.Name, player.Team.Name)
-					otherTeamIndex := getRandomTeamIndex(player.Team, teams)
-					otherTeam := teams[otherTeamIndex]
-					otherPlayer := players[otherTeamIndex]
-					tokenObtained := obtainToken(player.Team, otherTeam)
-					if tokenObtained {
-						fmt.Printf("%s obtained a token from %s! Tokens: %d\n", player.Name, otherTeam.Name, player.Team.Tokens)
-						fmt.Printf("%s lost a token! Tokens: %d\n", otherTeam.Name, otherTeam.Tokens)
-						if otherTeam.Tokens == 0 {
-							fmt.Printf("%s has no more tokens. They are out of the game.\n", otherTeam.Name)
-							otherPlayer.InGame = false
-							// deletePlayer(teams,otherTeamIndex)
-							// isGameFinished(players)
-							// player.InGame = false
-						}
-					}
-					if player.Team.Tokens == 0 {
-						player.InGame = false
-						// deletePlayer(teams,currentPlayerIndex)
-						fmt.Printf("%s from %s has no more tokens. They are out of the game.\n", player.Name, player.Team.Name)
-					}
-				} else if move == "Player" {
+				if result == "Win" {
+					// player.Tokens += 1
+					// teams[ind].Tokens -= 1
+					fmt.Printf("%s lose against %s\n", teams[ind].Name, player.Name)
+					// if teams[ind].Tokens == 0{
+					// teams[ind].inGame = false
+					teams[ind].positionX = 1
+					teams[ind].positionY = teams[ind].index
+					teams[ind].delay = 5
+					teams[ind].freezed = true
+					// fmt.Printf("%s fue eliminado del juego\n", teams[ind].Name)
+					// }else{
+					// 	teams[ind].positionX=1
+					// 	teams[ind].positionY=teams[ind].index
+					// }
 
-					otherPlayerIndex := getRandomPlayerIndex(playerIndex, players)
-					otherPlayer := players[otherPlayerIndex]
-
-					fmt.Printf("%s from %s encountered a player from %s!\n", player.Name, player.Team.Name, otherPlayer.Team.Name)
-					rpsResult := playRPS()
-
-					if rpsResult == "Win" {
-						fmt.Printf("%s from %s won in Rock, Paper, Scissors!\n", player.Name, player.Team.Name)
-						currentPlayerIndex = otherPlayerIndex
-					} else {
-						fmt.Printf("%s from %s lost in Rock, Paper, Scissors!\n", player.Name, player.Team.Name)
-						// player.InGame = false
-						// fmt.Printf("%s from %s is out of the game.\n", player.Team.Name, player.Team.Name)
-					}
 				} else {
-					fmt.Printf("%s from %s made a jump!\n", player.Name, player.Team.Name)
-					currentPlayerIndex = getNextPlayerIndex(currentPlayerIndex, len(players), players)
+					// player.Tokens -= 1
+					// teams[ind].Tokens += 1
+					fmt.Printf("%s lose against %s\n", player.Name, teams[ind].Name)
+					// if player.Tokens == 0 {
+					// player.inGame = false
+					player.positionX = 1
+					player.positionY = player.index
+					player.delay = 5
+					player.freezed = true
+					// fmt.Printf("%s fue eliminado del juego\n", player.Name)
+					// } else {
+					// player.positionX = 1
+					// player.positionY = player.index
+					// }
+
 				}
-			}
-
-		}(i)
-		for !isGameFinished(players) {
-			currentPlayer := players[currentPlayerIndex]
-			if currentPlayer.InGame {
-				fmt.Printf("%s from %s turn!\n", currentPlayer.Name, currentPlayer.Team.Name)
-				fmt.Println("Jump into each hoop to move across the board.")
-
-				moveCh <- makeJump(playingBoard, currentPlayerIndex)
-			}
-			time.Sleep(2 * time.Second)
-		}
-
-		close(moveCh)
-		wg.Wait()
-
-		fmt.Println("Game over!")
-		for _, team := range teams {
-			if team.Tokens != 0 {
-				fmt.Printf("%s is the winner, they collected %d tokens.\n", team.Name, team.Tokens)
+				// }
+				break
 			}
 		}
 	}
+
+	player.Mutex.Unlock()
+	stop <- true
+	chPlayer <- *player
+
 }
 
-func getNextPlayerIndex(currentPlayerIndex, numPlayers int, players []*Player) int {
-	nextPlayerIndex := (currentPlayerIndex + 1) % numPlayers
-	for !players[nextPlayerIndex].InGame {
-		nextPlayerIndex = (nextPlayerIndex + 1) % numPlayers
-	}
-	return nextPlayerIndex
-}
-
-func createPlayingBoard(numTeams int) []string {
-	playingBoard := make([]string, numTeams+1)
-	for i := 0; i < numTeams; i++ {
-		playingBoard[i] = "Hoop"
-	}
-	playingBoard[numTeams] = "Bucket"
-	return playingBoard
-}
-
-func makeJump(playingBoard []string, currentPlayerIndex int) string {
-	jumpOptions := []string{"Hoop", "Hoop", "Hoop", "Bucket", "Player"}
-	move := jumpOptions[rand.Intn(len(jumpOptions))]
-
-	if move == "Player" && playingBoard[currentPlayerIndex] != "Hoop" {
-		move = "Hoop"
-	}
-
-	return move
-}
-
-func getRandomPlayerIndex(currentPlayerIndex int, players []*Player) int {
-	otherPlayerIndex := rand.Intn(len(players))
-	for otherPlayerIndex == currentPlayerIndex || !players[otherPlayerIndex].InGame {
-		otherPlayerIndex = rand.Intn(len(players))
-	}
-	return otherPlayerIndex
-}
-
-func getRandomTeamIndex(currentTeam *Team, teams []*Team) int {
-	otherTeamIndex := rand.Intn(len(teams))
-	for otherTeamIndex == getTeamIndex(currentTeam, teams) || teams[otherTeamIndex].Tokens == 0 {
-		otherTeamIndex = rand.Intn(len(teams))
-	}
-	return otherTeamIndex
-}
-
-func deletePlayer(teams []*Team, index int) {
-	result := append(teams[:index], teams[index+1:]...)
-	teams = result
-}
-
-func getTeamIndex(team *Team, teams []*Team) int {
-	for i, t := range teams {
-		if t == team {
-			return i
+func isGameFinished() bool {
+	playersLost := 0
+	for _, player := range teams {
+		if player.inGame == false {
+			playersLost += 1
 		}
 	}
-	return -1
+	var isFinished bool
+	if len(teams)-playersLost == 1 {
+		isFinished = true
+	} else {
+		isFinished = false
+	}
+	return isFinished
+}
+
+func whoWon() {
+	var winner string
+	for _, player := range teams {
+		if player.inGame == true {
+			winner = player.Name
+			break
+		}
+	}
+	fmt.Printf("El ganador es %s\n",winner)
 }
 
 func playRPS() string {
@@ -317,26 +343,4 @@ func playRPS() string {
 	default:
 		return "Loss"
 	}
-}
-
-func obtainToken(currentTeam *Team, otherTeam *Team) bool {
-	if otherTeam.Tokens > 0 {
-		currentTeam.Tokens++
-		otherTeam.Tokens--
-		return true
-	}
-	return false
-}
-
-func isGameFinished(players []*Player) bool {
-	numPlayers := len(players)
-	numPlayersLost := 0
-
-	for _, player := range players {
-
-		if player.InGame == false {
-			numPlayersLost++
-		}
-	}
-	return numPlayersLost == numPlayers
 }
