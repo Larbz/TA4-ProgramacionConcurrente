@@ -31,9 +31,9 @@ type Player struct {
 	inGame    bool
 	delay     int
 	freezed   bool
-	Mutex sync.Mutex
 }
 
+var mutex sync.Mutex
 var wgGroup []*sync.WaitGroup
 var chGroup []chan Player
 var teams []*Player
@@ -211,7 +211,7 @@ func move(player *Player, wg *sync.WaitGroup, chPlayer chan Player, stop chan bo
 			}
 		}
 
-	} else if player.positionX == 1 && player.positionY != player.index {
+	} else if player.positionX == 1 && player.positionY != player.index && teams[player.index-1].inGame {
 		player.Tokens += 1
 		teams[player.positionY-1].Tokens -= 1
 		fmt.Printf("%s obtuvo 1 token de %s\n", player.Name, teams[player.positionY-1].Name)
@@ -240,7 +240,7 @@ func move(player *Player, wg *sync.WaitGroup, chPlayer chan Player, stop chan bo
 
 func collisions(player *Player, wg *sync.WaitGroup, chPlayer chan Player, stop chan bool) {
 	defer wg.Done()
-	player.Mutex.Lock()
+	mutex.Lock()
 	for ind := range teams {
 		if ind != player.index-1 && !teams[ind].freezed && !player.freezed {
 			if player.positionY == teams[ind].positionY && (teams[ind].positionX-player.positionX == 1 || teams[ind].positionX-player.positionX == -1 || teams[ind].positionX-player.positionX == 0) && teams[ind].inGame {
@@ -290,8 +290,8 @@ func collisions(player *Player, wg *sync.WaitGroup, chPlayer chan Player, stop c
 			}
 		}
 	}
+	mutex.Unlock()
 
-	player.Mutex.Unlock()
 	stop <- true
 	chPlayer <- *player
 

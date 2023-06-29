@@ -31,14 +31,6 @@ func main() {
 	puertoRemoto = strings.TrimSpace(puertoRemoto)
 	addressRemoto = fmt.Sprintf("localhost:%s", puertoRemoto)
 
-	// enviar(6)
-	// enviar(3)
-	// enviar(1)
-	// enviar(5)
-	// enviarMensaje(6)
-	// enviarMensaje(3)
-	// enviarMensaje(1)
-	// enviarMensaje(5)
 
 	fmt.Print("Ingrese su nombre: ")
 	name, _ := brIn.ReadString('\n')
